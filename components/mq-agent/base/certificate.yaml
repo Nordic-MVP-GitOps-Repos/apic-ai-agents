@@ -1,0 +1,29 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mq-agent-tls
+spec:
+  commonName: ibm-mq-agent
+  dnsNames:
+  - ibm-mq-agent
+  - ibm-mq-agent.cp4i
+  - ibm-mq-agent.cp4i.svc
+  - ibm-mq-agent.cp4i.svc.cluster.local
+  - ibm-mq-agent-ibm-mq-agent
+  - ibm-mq-agent-ibm-mq-agent.cp4i
+  - ibm-mq-agent-ibm-mq-agent.cp4i.svc
+  - ibm-mq-agent-ibm-mq-agent.cp4i.svc.cluster.local
+  duration: 2160h0m0s
+  issuerRef:
+    name: mq-selfsigned-issuer
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  renewBefore: 360h0m0s
+  secretName: mq-agent-tls
+  usages:
+  - key encipherment
+  - digital signature
+  - server auth
+  - client auth

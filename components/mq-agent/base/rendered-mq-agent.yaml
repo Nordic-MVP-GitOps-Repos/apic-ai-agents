@@ -1,0 +1,440 @@
+---
+# Source: ibm-mq-agent/templates/networkpolicy.yaml
+# © Copyright IBM Corporation 2025
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ibm-mq-agent-ibm-mq-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: "ibm-mq-agent"
+      app.kubernetes.io/instance: "ibm-mq-agent"
+      app.kubernetes.io/managed-by: "Helm"
+      app.kubernetes.io/component: integration
+  ingress:
+    # Allow inbound traffic from pods in the same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8001
+    # Allow traffic from OpenShift ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
+      ports:
+        - protocol: TCP
+          port: 8001
+---
+# Source: ibm-mq-agent/templates/serviceaccount.yaml
+# © Copyright IBM Corporation 2025
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ibm-mq-agent-ibm-mq-agent
+automountServiceAccountToken: false
+---
+# Source: ibm-mq-agent/templates/configmap-providers.yaml
+# © Copyright IBM Corporation 2025, 2026
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ibm-mq-agent-ibm-mq-agent-providers
+  namespace: cp4i
+  labels:
+    app.kubernetes.io/name: "ibm-mq-agent"
+    app.kubernetes.io/instance: "ibm-mq-agent"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: integration
+    app.kubernetes.io/version: "2.0.3"
+data:
+  providers.json: |
+    {
+      "roles": {
+        "primaryLLM": {
+          "modelId": "openai/gpt-oss-120b",
+          "providerType": "watsonxService",
+          "uri": "https://us-south.ml.cloud.ibm.com",
+          "envPrefix": "MYWATSONXRUNTIME"
+        },
+        "secondaryLLM": {
+          "modelId": "ibm/granite-4-h-small",
+          "providerType": "watsonxService",
+          "uri": "https://us-south.ml.cloud.ibm.com",
+          "envPrefix": "MYWATSONXRUNTIME"
+        }
+      }
+    }
+---
+# Source: ibm-mq-agent/templates/service.yaml
+# © Copyright IBM Corporation 2025, 2026
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ibm-mq-agent-ibm-mq-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: "ibm-mq-agent"
+    app.kubernetes.io/instance: "ibm-mq-agent"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: integration
+---
+# Source: ibm-mq-agent/templates/deployment.yaml
+# © Copyright IBM Corporation 2025
+
+# check for allowed license
+# We should prevent the user deploying if the license string is not valid 
+# (For the moment it must be 'L-JVBD-R9HX59')
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: cp4i
+  name: ibm-mq-agent-ibm-mq-agent
+  labels:
+    app.kubernetes.io/name: "ibm-mq-agent"
+    app.kubernetes.io/instance: "ibm-mq-agent"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: integration
+    app.kubernetes.io/version: "2.0.3"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "ibm-mq-agent"
+      app.kubernetes.io/instance: "ibm-mq-agent"
+      app.kubernetes.io/managed-by: "Helm"
+      app.kubernetes.io/component: integration
+  template:
+    metadata:
+      annotations:
+        productChargedContainers: All
+        productID: 208423bb063c43288328b1d788745b0c
+        productMetric: VIRTUAL_PROCESSOR_CORE
+        productName: IBM MQ Advanced
+      labels:
+        app.kubernetes.io/name: "ibm-mq-agent"
+        app.kubernetes.io/instance: "ibm-mq-agent"
+        app.kubernetes.io/managed-by: "Helm"
+        app.kubernetes.io/component: integration
+        app.kubernetes.io/version: "2.0.3"
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - arm64
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: ibm-mq-agent-ibm-mq-agent
+      containers:
+        - name: agent
+          image: cp.icr.io/cp/ibm-mq-agent-runtime@sha256:6876b721ebddf4cd12892113c6ecf05bc71ec1a65206a6a65cfd7ec3a40429c9
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for MCP server to be ready..."
+              max_attempts=60
+              attempt=0
+              while [ $attempt -lt $max_attempts ]; do
+                if curl -sf http://localhost:8000/ready > /dev/null 2>&1; then
+                  echo "MCP server is ready, starting agent..."
+                  exec uv run --no-sync --no-cache main.pyc
+                fi
+                attempt=$((attempt + 1))
+                echo "MCP server not ready yet, waiting... (attempt $attempt/$max_attempts)"
+                sleep 2
+              done
+              echo "ERROR: MCP server did not become ready within $((max_attempts * 2)) seconds"
+              exit 1
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  curl -sf http://localhost:8002/health > /dev/null 2>&1 &&
+                  curl -sf http://localhost:8000/ready > /dev/null 2>&1
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+              scheme: HTTPS
+            failureThreshold: 5
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'curl -sf http://localhost:8000/ready && curl -sf http://localhost:8002/health'
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 1.5
+              memory: 4Gi
+            requests:
+              cpu: 1.5
+              memory: 4Gi
+          env:
+            - name: LICENSE
+              value: "accept"
+            - name: MCP_URL
+              value: "http://localhost:8000/mcp"
+            - name: EMBEDDING_SERVICE_URI
+              value: "http://localhost:8002"
+            - name: MQ_DIAG_PATH
+              value: /opt/run
+            # Provider configuration file path
+            - name: PROVIDER_CONFIG_FILE
+              value: /run/config/providers/providers.json
+            - name: MYWATSONXRUNTIME_key
+              valueFrom:
+                secretKeyRef:
+                  name: ibm-mq-agent-ibm-mq-agent-mywatsonxruntime
+                  key: key
+            - name: MYWATSONXRUNTIME_projectID
+              valueFrom:
+                secretKeyRef:
+                  name: ibm-mq-agent-ibm-mq-agent-mywatsonxruntime
+                  key: projectID
+            - name: API_KEY_FILE
+              value: /run/secrets/apikey/api.key
+            - name: AGENT_SSL_KEY
+              value: /run/secrets/certs/tls.key
+            - name: AGENT_SSL_CERT
+              value: /run/secrets/certs/tls.crt
+            - name: MQ_MILVUS_DB
+              value: "/opt/app-root/src/milvus_lite.db"
+            - name: AGENT_IDENTIFIER
+              value: mq-agent-001
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name 
+            - name: POD_NAMESPACE
+              value: cp4i
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.uid 
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP              
+            - name: DIAG_KEY_FILE
+              value: /run/secrets/diag/adminKey
+          ports:
+            - containerPort: 8001
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+            - mountPath: /tmp
+              subPath: agent-tmp
+              name: ephemeral-storage
+            - mountPath: /opt/run
+              subPath: agent-run
+              name: ephemeral-storage
+            - name: diag-secret
+              mountPath: /run/secrets/diag
+            - name: agent-api-key-file
+              mountPath: /run/secrets/apikey
+            - name: agent-tls
+              mountPath: /run/secrets/certs
+            - name: provider-config
+              mountPath: /run/config/providers
+              readOnly: true
+        - name: mcp-server
+          image: cp.icr.io/cp/ibm-mq-agent-mcp@sha256:512ab6999f6c6d9000e63f04f659beb3f33f6dde4a48679a174c50be69fba5e8
+          imagePullPolicy: IfNotPresent
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            failureThreshold: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            failureThreshold: 5
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: LICENSE
+              value: accept
+            - name: MQCCDTURL
+              value: file:///run/mq/ccdt/ccdt.json
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MQ_DIAG_PATH
+              value: /opt/run
+          resources:
+            limits:
+              cpu: 0.5
+              memory: 1Gi
+            requests:
+              cpu: 0.5
+              memory: 1Gi
+          ports:
+            - containerPort: 8000
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+            - mountPath: /tmp
+              subPath: mcp-tmp
+              name: ephemeral-storage
+            - mountPath: /opt/run
+              subPath: mcp-run 
+              name: ephemeral-storage
+            - name: ccdt-volume
+              mountPath: /run/mq/ccdt
+        - name: embedding-service
+          image: cp.icr.io/cp/ibm-mq-agent-embedding-service@sha256:16d34cb234cdde528b40b202f99db9c2e98baf8c76dc01eff447ae0c07df005b
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8002
+            name: embedding
+            protocol: TCP
+          resources:
+            limits:
+              cpu: 2
+              memory: 2Gi
+            requests:
+              cpu: 2
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            failureThreshold: 5
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+            - mountPath: /tmp
+              subPath: embedding-tmp
+              name: ephemeral-storage
+      imagePullSecrets:
+        - name: ibm-entitlement-key
+      volumes:
+        - name: ephemeral-storage
+          emptyDir:
+            sizeLimit: 500Mi
+        - name: ccdt-volume
+          configMap:
+            # Provide the name of the ConfigMap containing the files you want
+            # to add to the container
+            name: mq-agent-ccdt
+            items:
+                # Key in the ConfigMap
+              - key: ccdt.json
+                # File name inside the container
+                path: ccdt.json
+        - name: agent-api-key-file
+          secret:
+            secretName: ibm-mq-agent-ibm-mq-agent-api-key-file
+        - name: agent-tls
+          secret:
+            secretName: mq-agent-tls
+        - name: diag-secret
+          secret:
+            secretName: ibm-mq-agent-ibm-mq-agent-diag
+        - name: provider-config
+          configMap:
+            name: ibm-mq-agent-ibm-mq-agent-providers
+---
+# Source: ibm-mq-agent/templates/secret-providers.yaml
+# © Copyright IBM Corporation 2025,2026
+---
+# Source: ibm-mq-agent/templates/route-backend.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ibm-mq-agent-ibm-mq-agent
+spec:
+  port:
+    targetPort: 8001
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: ibm-mq-agent-ibm-mq-agent
+    weight: 100
+  wildcardPolicy: None
