@@ -15,6 +15,12 @@ spec:
     metric: VIRTUAL_PROCESSOR_CORE
     use: PATCHED_BY_KUSTOMIZE
   management:
+    ai:
+      enabled: true
+      apiAgent:
+        enabled: true
+        codegenEnabled: true
+        rationalizationEnabled: true
     testAndMonitor:
       enabled: true
       autoTestEnabled: true
@@ -43,6 +49,7 @@ spec:
         - name: consumer-api.apps.INGRESS_SUBDOMAIN
           secretName: default-cert-copy
   analytics:
+    apiAgentMode: true
     storage:
       enabled: true
       type: shared
