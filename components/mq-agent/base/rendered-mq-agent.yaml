@@ -57,7 +57,7 @@ data:
     {
       "roles": {
         "primaryLLM": {
-          "modelId": "openai/gpt-oss-120b",
+          "modelId": "meta-llama/llama-3-3-70b-instruct",
           "providerType": "watsonxService",
           "uri": "https://eu-de.ml.cloud.ibm.com",
           "envPrefix": "MYWATSONXRUNTIME"
