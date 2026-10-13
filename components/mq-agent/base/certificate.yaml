@@ -13,6 +13,8 @@ spec:
   - ibm-mq-agent-ibm-mq-agent.cp4i
   - ibm-mq-agent-ibm-mq-agent.cp4i.svc
   - ibm-mq-agent-ibm-mq-agent.cp4i.svc.cluster.local
+  # Route host used by mqweb (agentHostname in mq-agent-mqweb-config)
+  - ibm-mq-agent-ibm-mq-agent-cp4i.apps.itz-4v0wj0.hub04-lb.techzone.ibm.com
   duration: 2160h0m0s
   issuerRef:
     name: mq-selfsigned-issuer
