@@ -59,13 +59,13 @@ data:
         "primaryLLM": {
           "modelId": "openai/gpt-oss-120b",
           "providerType": "watsonxService",
-          "uri": "https://us-south.ml.cloud.ibm.com",
+          "uri": "https://eu-de.ml.cloud.ibm.com",
           "envPrefix": "MYWATSONXRUNTIME"
         },
         "secondaryLLM": {
           "modelId": "ibm/granite-4-h-small",
           "providerType": "watsonxService",
-          "uri": "https://us-south.ml.cloud.ibm.com",
+          "uri": "https://eu-de.ml.cloud.ibm.com",
           "envPrefix": "MYWATSONXRUNTIME"
         }
       }
