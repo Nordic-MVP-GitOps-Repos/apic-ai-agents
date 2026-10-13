@@ -16,3 +16,10 @@ spec:
       requests:
         cpu: 300m
         memory: 1Gi
+  template:
+    queueManager:
+      web:
+        # Points the MQ Console at the IBM MQ Agent (agentHostname / agentAPIKey).
+        manualConfig:
+          secret:
+            name: mq-agent-mqweb-config
